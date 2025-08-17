@@ -17,6 +17,7 @@ def test_strtobool():
     assert bumper.strtobool(0) == False
 
 
+@pytest.mark.asyncio
 async def test_start_stop():
     with LogCapture() as l:
         if os.path.exists("tests/tmp.db"):
@@ -39,6 +40,7 @@ async def test_start_stop():
         assert b.shutting_down == True
 
 
+@pytest.mark.asyncio
 async def test_start_stop_debug():
     with LogCapture() as l:
         if os.path.exists("tests/tmp.db"):

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 from bumper.confserver import ConfServer
-from bumper.mqttserver import MQTTServer, MQTTHelperBot
 from bumper.xmppserver import XMPPServer
+from bumper.mqtt.mqtt_client import MqttClient
+from bumper.mqtt.qos import QoS
 from bumper.models import *
 from bumper.db import *
 import asyncio
@@ -41,9 +42,13 @@ os.makedirs(certs_dir, exist_ok=True)  # Ensure data directory exists or create
 
 
 # Certs
-ca_cert = os.environ.get("BUMPER_CA") or os.path.join(certs_dir, "ca.crt")
-server_cert = os.environ.get("BUMPER_CERT") or os.path.join(certs_dir, "bumper.crt")
-server_key = os.environ.get("BUMPER_KEY") or os.path.join(certs_dir, "bumper.key")
+ca_cert:str = os.environ.get("BUMPER_CA") or os.path.join(certs_dir, "ca.crt")
+server_cert:str = os.environ.get("BUMPER_CERT") or os.path.join(certs_dir, "bumper.crt")
+server_key:str = os.environ.get("BUMPER_KEY") or os.path.join(certs_dir, "bumper.key")
+
+certs: dict = {"CA_CERT": ca_cert,
+               "CLIENT_CERT": server_cert,
+               "CLIENT_KEY": server_key}
 
 # Listeners
 bumper_listen = os.environ.get("BUMPER_LISTEN") or socket.gethostbyname(
@@ -102,60 +107,8 @@ if not log_to_stdout:
     confserverlog.addHandler(conf_rotate)
 else:
     confserverlog.addHandler(logging.StreamHandler(sys.stdout))
-# Override the logging level
-# confserverlog.setLevel(logging.INFO)
 
-mqttserverlog = logging.getLogger("mqttserver")
-if not log_to_stdout:
-    mqtt_rotate = RotatingFileHandler(
-        "logs/mqttserver.log", maxBytes=5000000, backupCount=5
-    )
-    mqtt_rotate.setFormatter(logformat)
-    mqttserverlog.addHandler(mqtt_rotate)
-else:
-    mqttserverlog.addHandler(logging.StreamHandler(sys.stdout))
-# Override the logging level
-# mqttserverlog.setLevel(logging.INFO)
 
-### Additional MQTT Logs
-translog = logging.getLogger("transitions")
-if not log_to_stdout:
-    translog.addHandler(mqtt_rotate)
-else:
-    translog.addHandler(logging.StreamHandler(sys.stdout))
-translog.setLevel(logging.CRITICAL + 1)  # Ignore this logger
-logging.getLogger("passlib").setLevel(logging.CRITICAL + 1)  # Ignore this logger
-brokerlog = logging.getLogger("hbmqtt.broker")
-#brokerlog.setLevel(
-#    logging.CRITICAL + 1
-#)  # Ignore this logger #There are some sublogs that could be set if needed (.plugins)
-if not log_to_stdout:
-    brokerlog.addHandler(mqtt_rotate)
-else:
-    brokerlog.addHandler(logging.StreamHandler(sys.stdout))
-protolog = logging.getLogger("hbmqtt.mqtt.protocol")
-#protolog.setLevel(
-#    logging.CRITICAL + 1
-#)  # Ignore this logger
-if not log_to_stdout:
-    protolog.addHandler(mqtt_rotate)
-else:
-    protolog.addHandler(logging.StreamHandler(sys.stdout))
-clientlog = logging.getLogger("hbmqtt.client")
-#clientlog.setLevel(logging.CRITICAL + 1)  # Ignore this logger
-if not log_to_stdout:
-    clientlog.addHandler(mqtt_rotate)
-else:
-    clientlog.addHandler(logging.StreamHandler(sys.stdout))
-helperbotlog = logging.getLogger("helperbot")
-if not log_to_stdout:
-    helperbot_rotate = RotatingFileHandler(
-        "logs/helperbot.log", maxBytes=5000000, backupCount=5
-    )
-    helperbot_rotate.setFormatter(logformat)
-    helperbotlog.addHandler(helperbot_rotate)
-else:
-    helperbotlog.addHandler(logging.StreamHandler(sys.stdout))
 # Override the logging level
 # helperbotlog.setLevel(logging.INFO)
 
@@ -225,38 +178,23 @@ async def start():
         return
 
     bumperlog.info("Starting Bumper")
-    global mqtt_server
-    mqtt_server = MQTTServer((bumper_listen, mqtt_listen_port))
-    global mqtt_helperbot
-    mqtt_helperbot = MQTTHelperBot((bumper_listen, mqtt_listen_port))
     global conf_server
     conf_server = ConfServer((bumper_listen, conf1_listen_port), usessl=True)
-    global conf_server_2
-    conf_server_2 = ConfServer((bumper_listen, conf2_listen_port), usessl=False)
+    # global conf_server_2
+    # conf_server_2 = ConfServer((bumper_listen, conf2_listen_port), usessl=False)
     global xmpp_server
     xmpp_server = XMPPServer((bumper_listen, xmpp_listen_port))
 
-    # Start MQTT Server
-    # await start otherwise we get an error connecting the helper bot
-    await asyncio.create_task(mqtt_server.broker_coro())
 
-    # Start MQTT Helperbot
-    asyncio.create_task(mqtt_helperbot.start_helper_bot())
 
     # Start XMPP Server
     asyncio.create_task(xmpp_server.start_async_server())
 
-    # Wait for helperbot to connect first
-    while mqtt_helperbot.Client is None:
-        await asyncio.sleep(0.1)
-
-    while not mqtt_helperbot.Client.session.transitions.state == "connected":
-        await asyncio.sleep(0.1)
 
     # Start web servers
-    conf_server.confserver_app()
-    asyncio.create_task(conf_server.start_site(conf_server.app, address=bumper_listen, port=conf1_listen_port, usessl=True))
-    asyncio.create_task(conf_server.start_site(conf_server.app, address=bumper_listen, port=conf2_listen_port, usessl=False))
+    conf_server.confserver_app(certs)
+    # asyncio.create_task(conf_server.start_site(conf_server.app, address=bumper_listen, port=conf1_listen_port, usessl=True))
+    asyncio.create_task(conf_server.start_site(conf_server.app, address=bumper_listen, port=conf2_listen_port, usessl=True))
 
     # Start maintenance
     while not shutting_down:
@@ -272,17 +210,8 @@ async def maintenance():
 async def shutdown():
     try:
         bumperlog.info("Shutting down")
-
         await conf_server.stop_server()
         await conf_server_2.stop_server()
-        if mqtt_server.broker.transitions.state == "started":
-            await mqtt_server.broker.shutdown()
-        elif mqtt_server.broker.transitions.state == "starting":
-            while mqtt_server.broker.transitions.state == "starting":
-                await asyncio.sleep(0.1)
-            if mqtt_server.broker.transitions.state == "started":
-                await mqtt_server.broker.shutdown()
-                await mqtt_helperbot.Client.disconnect()
         if xmpp_server.server:
             if xmpp_server.server._serving:
                 xmpp_server.server.close()
@@ -301,42 +230,26 @@ async def shutdown():
 
 
 def create_certs():
-    import platform
-    import os
     import subprocess
-    import sys
+    process = subprocess.Popen(
+                                ["./create_certs/create_cert.sh"],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True
+    )
+    stdout, stderr = process.communicate()
 
-    path = os.path.dirname(sys.modules[__name__].__file__)
-    path = os.path.join(path, "..")
-    sys.path.insert(0, path)
+    logging.debug(f"Creating Cert stdout = {stdout}",
+                  f"stderr = {stderr}")
 
-    print("Creating certificates")
-    odir = os.path.realpath(os.curdir)
-    os.chdir("certs")
-    if str(platform.system()).lower() == "windows":
-        # run for win
-        subprocess.run([os.path.join("..", "create_certs", "create_certs_windows.exe")])
-    elif str(platform.system()).lower() == "darwin":
-        # run on mac
-        subprocess.run([os.path.join("..", "create_certs", "create_certs_osx")])
-    elif str(platform.system()).lower() == "linux":
-        if "arm" in platform.machine().lower() or "aarch64" in platform.machine().lower():
-            # run for pi
-            subprocess.run([os.path.join("..", "create_certs", "create_certs_rpi")])
-        else:
-            # run for linux
-            subprocess.run([os.path.join("..", "create_certs", "create_certs_linux")])
-
+    if process.returncode == 0:
+        print("Success:")
+        print(stdout)
     else:
-        os.chdir(odir)
-        logging.log(
-            logging.FATAL,
-            "Can't determine platform. Create certs manually and try again.",
-        )
-        return
+        print("Error:")
+        print(stderr)
 
     print("Certificates created")
-    os.chdir(odir)
 
     if "__main__.py" in sys.argv[0]:
         os.execv(

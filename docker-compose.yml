@@ -1,0 +1,10 @@
+services: 
+  mosquitto: 
+    container_name: mosquitto
+    image: eclipse-mosquitto:latest
+    volumes: 
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/certs:/mosquitto/config/certs
+    ports: 
+      - 1883:1883  
+      - 8883:8883

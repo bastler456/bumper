@@ -1,36 +1,21 @@
-ARG FROM_ARCH=amd64
+FROM debian:bookworm-slim
 
-FROM alpine as builder
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
 
-# Download QEMU, see https://github.com/ckulka/docker-multi-arch-example
-ADD https://github.com/balena-io/qemu/releases/download/v3.0.0%2Bresin/qemu-3.0.0+resin-arm.tar.gz .
-RUN tar zxvf qemu-3.0.0+resin-arm.tar.gz --strip-components 1
-ADD https://github.com/balena-io/qemu/releases/download/v3.0.0%2Bresin/qemu-3.0.0+resin-aarch64.tar.gz .
-RUN tar zxvf qemu-3.0.0+resin-aarch64.tar.gz --strip-components 1
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
 
-FROM $FROM_ARCH/python:3.7-alpine as base
+RUN sh /uv-installer.sh && rm /uv-installer.sh
 
-# Add QEMU
-# Add QEMU
-COPY --from=builder qemu-arm-static /usr/bin
-COPY --from=builder qemu-aarch64-static /usr/bin
+ENV PATH="/root/.local/bin/:$PATH"
 
-FROM base as builderfinal
-
-# add build utils (gcc, others)
-RUN apk add build-base
-
-FROM base
-
-COPY requirements.txt /requirements.txt
-
-# install required python packages
-RUN pip3 install -r requirements.txt
 
 WORKDIR /bumper
 
-# Copy only required folders instead of all
+
 COPY create_certs/ create_certs/
 COPY bumper/ bumper/
+COPY pyproject.toml .
 
-ENTRYPOINT ["python3", "-m", "bumper"]
+RUN uv sync
+
+ENTRYPOINT ["uv", "run", "-m", "bumper"]

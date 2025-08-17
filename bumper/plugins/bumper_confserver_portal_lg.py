@@ -8,6 +8,9 @@ from aiohttp import web
 
 from bumper import plugins
 from bumper.models import *
+from bumper.mqtt.qos import QoS
+from queue import Empty
+
 
 
 class portal_api_lg(plugins.ConfServerApp):
@@ -16,7 +19,7 @@ class portal_api_lg(plugins.ConfServerApp):
         self.name = "portal_api_lg"
         self.plugin_type = "sub_api"
         self.sub_api = "portal_api"
-
+        self.__mqtt_client = None
         self.routes = [
 
             web.route("*", "/lg/log.do", self.handle_lg_log, name="portal_api_lg_log"),
@@ -27,7 +30,7 @@ class portal_api_lg(plugins.ConfServerApp):
 
     async def handle_lg_log(self, request):  # EcoVacs Home
         randomid = "".join(random.sample(string.ascii_letters, 6))
-
+        self.__mqtt_client = bumper.ConfServer.get_mqtt_server()
         try:
             json_body = json.loads(await request.text())
 
@@ -60,16 +63,37 @@ class portal_api_lg(plugins.ConfServerApp):
             if did != "":
                 bot = bumper.bot_get(did)
                 if bot["company"] == "eco-ng":
-                    retcmd = await bumper.mqtt_helperbot.send_command(
-                        json_body, randomid
+                    ttopic = "iot/p2p/{}/helperbot/bumper/helperbot/{}/{}/{}/q/{}/{}".format(
+                        json_body["cmdName"],
+                        json_body["toId"],
+                        json_body["toType"],
+                        json_body["toRes"],
+                        randomid,
+                        json_body["payloadType"],
                     )
-                    body = retcmd
+                    self.__mqtt_client.subscribe(ttopic, QoS.QoS0)
+                    if json_body["payloadType"] == "x":
+                        retcmd = self.__mqtt_client.publish(ttopic, str(json_body["payload"]).encode(), QoS.QoS0)
+
+                    elif json_body["payloadType"] == "j":
+                        retcmd = self.__mqtt_client.publish(ttopic, json_body["payload"].encode(), QoS.QoS0)
+
+                    else:
+                        error_msg = "No valid payloadType detected"
+                        logging.error(error_msg)
+                        raise TypeError(error_msg)
+
+                    try:
+                        body: dict = self.__mqtt_client.get_received_messages(ttopic)
+                    except Empty | KeyError:
+                        body: dict = {}
+
                     logging.debug("Send Bot - {}".format(json_body))
                     logging.debug("Bot Response - {}".format(body))
                     logs = []
-                    logsroot = ET.fromstring(retcmd["resp"])
+                    logsroot = ET.fromstring(body["resp"])
                     if logsroot.attrib["ret"] == "ok":
-                        cleanlogs = logsroot.getchildren()
+                        cleanlogs: list = [logsroot]
                         for l in cleanlogs:
                             cleanlog = {
                                 "ts": l.attrib['s'],

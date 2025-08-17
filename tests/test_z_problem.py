@@ -1,16 +1,11 @@
-import mock
 from mock import patch
 import pytest
-from tinydb.storages import MemoryStorage
-from tinydb import TinyDB, Query
 import bumper
 import os
-import datetime, time
-import platform
-import json
-import asyncio
-from testfixtures import LogCapture
-import sys
+import subprocess
+import tempfile
+from pathlib import Path
+import shutil
 
 
 def mock_subrun(*args):
@@ -42,61 +37,45 @@ def test_argparse(mock_start):
     assert mock_start.called == True
 
 
-@patch("subprocess.run")
-@patch("platform.system")
-@patch("platform.machine")
-@patch("os.execv")
-def test_createcert(mock_run, mock_platform, mock_machine, mock_exec):
-    mock_run.side_effect = mock_subrun
-    platform.system.return_value = "darwin"
-    bumper.create_certs()
-    assert mock_run.called == True
-    assert (
-        os.path.join("..", "create_certs", "create_certs_osx")
-        in mock_exec.call_args.args[0]
-    )
-
-    platform.system.return_value = "windows"
-    bumper.create_certs()
-    assert mock_run.called == True
-    assert (
-        os.path.join("..", "create_certs", "create_certs_windows.exe")
-        in mock_exec.call_args.args[0]
-    )
-
-    platform.system.return_value = "linux"
-    bumper.create_certs()
-    assert mock_run.called == True
-    assert (
-        os.path.join("..", "create_certs", "create_certs_linux")
-        in mock_exec.call_args.args[0]
-    )
-
-    platform.system.return_value = "linux"
-    platform.machine.return_value = "arm"
-    bumper.create_certs()
-    assert mock_run.called == True
-    assert (
-        os.path.join("..", "create_certs", "create_certs_rpi")
-        in mock_exec.call_args.args[0]
-    )
-
-    with LogCapture() as l:
-        platform.system.return_value = "nixbad"
-        bumper.create_certs()
-
-    l.check_present(
-        (
-            "root",
-            "CRITICAL",
-            "Can't determine platform. Create certs manually and try again.",
-        )
-    )
-
-
 @patch("bumper.first_run")
 def test_main(mock_firstrun):
     bumper.ca_cert = "sf"
     bumper.main()
     assert mock_firstrun.called == True
     bumper.ca_cert = "tests/test_certs/ca.crt"
+
+
+def test_generate_certs_script(tmp_path):
+
+    cert_creation_dir: Path = Path("create_certs")
+    certs_dir: Path = Path(tmp_path)
+
+    certs_dir.mkdir(parents=True, exist_ok=True)
+
+    script_path: Path = cert_creation_dir / "create_cert.sh"
+
+    certs_dir.absolute()
+
+    path_certs = str(certs_dir) + "/"
+
+    cmd = [str(script_path), path_certs]
+
+    result = subprocess.Popen(cmd,
+                                stderr=subprocess.PIPE,
+                                stdout=subprocess.PIPE)
+    stdout, stderr = result.communicate()
+    print("STDOUT:", stdout)
+    print("STDERR:", stderr)
+
+    assert result.returncode == 0, f"Script failed with return code {result.returncode}"
+
+    expected_files = [
+        "ca.key", "ca.csr", "ca.crt",
+        "bumper.key", "bumper.csr", "bumper.crt"
+    ]
+
+    for filename in expected_files:
+        file_path = certs_dir / filename
+        assert file_path.exists(), f"Expected file {filename} not found in {certs_dir}"
+
+    assert True
