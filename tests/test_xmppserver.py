@@ -20,6 +20,7 @@ def mock_transport_extra_info(*args, **kwargs):
     return ("127.0.0.1", 5223)
 
 
+@pytest.mark.asyncio
 async def test_xmpp_server():
     xmpp_address = ("127.0.0.1", 5223)
     xmpp_server = bumper.XMPPServer(xmpp_address)
@@ -57,9 +58,10 @@ async def test_xmpp_server():
     xmpp_server.disconnect()
 
 
+@pytest.mark.asyncio
 async def test_client_connect_no_starttls(*args, **kwargs):
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.CONNECT  # Set client state to CONNECT
@@ -100,9 +102,10 @@ async def test_client_connect_no_starttls(*args, **kwargs):
     assert xmppclient.state == xmppclient.INIT  # Client moved to INIT state
 
 
+@pytest.mark.asyncio
 async def test_client_end_stream(*args, **kwargs):
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.CONNECT  # Set client state to CONNECT
@@ -132,9 +135,10 @@ async def test_client_end_stream(*args, **kwargs):
     xmppclient._parse_data(test_data)
 
 
+@pytest.mark.asyncio
 async def test_client_connect_starttls_called(*args, **kwargs):
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.CONNECT  # Set client state to CONNECT
@@ -207,6 +211,7 @@ async def test_client_connect_starttls_called(*args, **kwargs):
     assert xmppclient.state == xmppclient.INIT  # Client moved to INIT state
 
 
+@pytest.mark.asyncio
 async def test_xmpp_server_client_tls():
 
     xmpp_address = ("127.0.0.1", 5223)
@@ -257,16 +262,23 @@ async def test_xmpp_server_client_tls():
     new_transport = await loop.start_tls(
         transport, protocol, ssl_context, server_side=False
     )
-    protocol._stream_reader = asyncio.StreamReader(loop=loop)
-    protocol._client_connected_cb = do_stuff_after_start_tls
-    protocol.connection_made(new_transport)
+    ssl_reader = asyncio.StreamReader()
+    ssl_protocol = asyncio.StreamReaderProtocol(ssl_reader)
+
+    ssl_protocol.connection_made(new_transport)
+    ssl_writer = asyncio.StreamWriter(new_transport, ssl_protocol, ssl_reader, loop)
+
+
+    await do_stuff_after_start_tls(ssl_reader, ssl_writer)
+
 
     print(l)
 
 
+@pytest.mark.asyncio
 async def test_client_init(*args, **kwargs):
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.INIT  # Set client state to INIT
@@ -338,9 +350,10 @@ async def test_client_init(*args, **kwargs):
     )  # client presence - dummy response
 
 
+@pytest.mark.asyncio
 async def test_bot_connect(*args, **kwargs):
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.CONNECT  # Set client state to CONNECT
@@ -382,9 +395,10 @@ async def test_bot_connect(*args, **kwargs):
     assert xmppclient.type == xmppclient.BOT  # Client type is now bot
 
 
+@pytest.mark.asyncio
 async def test_bot_init(*args, **kwargs):
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.INIT  # Set client state to INIT
@@ -456,9 +470,10 @@ async def test_bot_init(*args, **kwargs):
     )  # bot presence - dummy response
 
 
+@pytest.mark.asyncio
 async def test_ping_server(*args, **kwargs):
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.READY  # Set client state to READY
@@ -478,10 +493,11 @@ async def test_ping_server(*args, **kwargs):
     )  # ping response
 
 
+@pytest.mark.asyncio
 async def test_ping_client_to_client(*args, **kwargs):
 
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.READY  # Set client state to READY
@@ -523,9 +539,10 @@ async def test_ping_client_to_client(*args, **kwargs):
     )  # ping response
 
 
+@pytest.mark.asyncio
 async def test_client_send_iq(*args, **kwargs):
-    test_transport = asyncio.Transport()
-    test_transport.get_extra_info = mock.Mock(return_value=mock_transport_extra_info())
+    test_transport = mock.MagicMock(spec=asyncio.Transport)
+    test_transport.get_extra_info.return_value = mock_transport_extra_info()
     test_transport.write = mock.Mock(return_value=return_send_data)
     xmppclient = bumper.xmppserver.XMPPAsyncClient(test_transport)
     xmppclient.state = xmppclient.READY  # Set client state to READY
